@@ -2,6 +2,12 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Service Centrale Cynotechnique de la Gendarmerie Royale</title>
 <style>
 :root{--bg:#0f1115;--panel:#181b21;--panel2:#20242b;--text:#f4f6fa;--muted:#aab1bd;--line:#303640;--blue:#1257d6;--yellow:#eab308;--green:#16a34a;--black:#050505;--red:#dc2626}
@@ -18,7 +24,6 @@ header{background:linear-gradient(135deg,#050711,#11182c);border-bottom:1px soli
 #authGate.show{display:flex}.auth-card{width:min(440px,100%);background:#181b21;border:1px solid #303640;border-radius:18px;padding:22px;box-shadow:0 20px 70px #0008}.auth-card h2{margin:0 0 8px}.auth-card p{color:#aab1bd;font-size:13px;line-height:1.7}.auth-card input{width:100%;margin-top:7px;background:#101319;color:white;border:1px solid #3b424e;border-radius:10px;padding:12px}.auth-actions{display:flex;gap:8px;margin-top:14px}.auth-msg{margin-top:10px;color:#ffb4b4;font-size:13px;min-height:18px}.cloud-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:20px;background:#063d1b;color:#69e49a;border:1px solid #176c3b;font-size:12px;font-weight:800;margin-top:8px}.cloud-badge.off{background:#3a2d00;color:#ffe27a;border-color:#6b5200}.user-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}.user-bar .btn{padding:7px 10px;font-size:12px}
 .pin-note{font-size:12px;color:#8f98a7;margin-top:8px}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 // SCCGR cloud configuration (Publishable key only)
 window.SCCGR_CONFIG={
@@ -56,13 +61,12 @@ window.SCCGR_CONFIG={
 const KEY='SCCGR_MANAGER_V2';
 let db=JSON.parse(localStorage.getItem(KEY)||'{"people":[],"dogs":[],"visits":[],"tasks":[],"recent":[]}'); if(!db.tasks)db.tasks=[];
 let tab='home';
-let cloudReady=false, cloudUser=null, realtimeChannel=null, cloudBusy=false;
+let cloudReady=false, cloudUser=null, realtimeChannel=null, cloudBusy=false, cloudTimer=null;
 const $=id=>document.getElementById(id); const uid=(p='ID-')=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6).toUpperCase();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function persist(){localStorage.setItem(KEY,JSON.stringify(db));render()}
 function setCloudStatus(text,off=false){const el=$('cloudStatus');if(!el)return;el.textContent=text;el.classList.toggle('off',off)}
-function hasConfig(){return !!(window.SCCGR_CONFIG?.SUPABASE_URL&&window.SCCGR_CONFIG?.SUPABASE_PUBLISHABLE_KEY&& !window.SCCGR_CONFIG.SUPABASE_URL.includes('YOUR-PROJECT'))}
-const supabaseClient=hasConfig()?supabase.createClient(window.SCCGR_CONFIG.SUPABASE_URL,window.SCCGR_CONFIG.SUPABASE_PUBLISHABLE_KEY,{auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true}}):null;
+function hasConfig(){return !!(window.SCCGR_CONFIG?.SUPABASE_URL&&window.SCCGR_CONFIG?.SUPABASE_PUBLISHABLE_KEY&&!window.SCCGR_CONFIG.SUPABASE_URL.includes('YOUR-PROJECT'))}
 const tableMap={people:'sccgr_people',dogs:'sccgr_dogs',visits:'sccgr_visits',tasks:'sccgr_tasks'};
 function rowToPerson(r){return {id:r.id,name:r.name||'',matricul:r.matricul||'',phone:r.phone||'',notes:r.notes||'',photo:r.photo||'',status:r.status||'Disponible',permissionStart:r.permission_start||'',permissionEnd:r.permission_end||''}}
 function rowToDog(r){return {id:r.id,name:r.name||'',dogNumber:r.dog_number||'',personId:r.person_id||'',breed:r.breed||'',gender:r.gender||'',birth:r.birth||'',arrival:r.arrival||'',color:r.color||'',weight:r.weight||'',notes:r.notes||'',photo:r.photo||'',status:r.status||'Disponible'}}
@@ -72,72 +76,30 @@ function personRow(p){return {id:p.id,name:p.name||'',matricul:p.matricul||'',ph
 function dogRow(d){return {id:d.id,name:d.name||'',dog_number:d.dogNumber||'',person_id:d.personId||null,breed:d.breed||'',gender:d.gender||'',birth:d.birth||null,arrival:d.arrival||null,color:d.color||'',weight:d.weight||'',notes:d.notes||'',photo:d.photo||'',status:d.status||'Disponible'}}
 function visitRow(v){return {id:v.id,dog_id:v.dogId||null,date:v.date||null,start_date:v.startDate||null,end_date:v.endDate||null,visit_days:v.visitDays||[],reason:v.reason||'',diagnosis:v.diagnosis||'',treatment:v.treatment||'',doctor:v.doctor||'',medicines:v.medicines||'',next_date:v.next||null,notes:v.notes||'',completed:!!v.completed,created_at:v.createdAt||Date.now()}}
 function taskRow(t){return {id:t.id,name:t.name||'',place:t.place||'',people:t.people||'',date:t.date||null,dog_ids:t.dogIds||[],result:t.result||''}}
-async function loadCloud(){if(!supabaseClient)return false;const [p,d,v,t]=await Promise.all([supabaseClient.from(tableMap.people).select('*'),supabaseClient.from(tableMap.dogs).select('*'),supabaseClient.from(tableMap.visits).select('*'),supabaseClient.from(tableMap.tasks).select('*')]);const err=[p,d,v,t].find(x=>x.error)?.error;if(err)throw err;db={people:p.data.map(rowToPerson),dogs:d.data.map(rowToDog),visits:v.data.map(rowToVisit),tasks:t.data.map(rowToTask),recent:[]};persist();return true}
-async function upsertTable(kind,row){if(!cloudReady||!supabaseClient)return;const {error}=await supabaseClient.from(tableMap[kind]).upsert(row);if(error)throw error}
-async function deleteTable(kind,id){if(!cloudReady||!supabaseClient)return;const {error}=await supabaseClient.from(tableMap[kind]).delete().eq('id',id);if(error)throw error}
-async function syncOne(kind,obj){if(!cloudReady)return;try{await upsertTable(kind,{people:personRow,dogs:dogRow,visits:visitRow,tasks:taskRow}[kind](obj));setCloudStatus('☁️ متصل — محفوظ');}catch(e){console.error(e);setCloudStatus('☁️ خطأ في الحفظ',true);alert('تعذر حفظ التعديل في قاعدة البيانات: '+e.message)}}
-async function migrateLocalToCloud(){if(!cloudReady){alert('سجّل الدخول أولاً.');return}if(!confirm('سيتم رفع جميع البيانات الموجودة حالياً على هذا الجهاز إلى قاعدة البيانات المركزية. هل تريد المتابعة؟'))return;try{cloudBusy=true;for(const p of db.people)await upsertTable('people',personRow(p));for(const d of db.dogs)await upsertTable('dogs',dogRow(d));for(const v of db.visits)await upsertTable('visits',visitRow(v));for(const t of db.tasks)await upsertTable('tasks',taskRow(t));setCloudStatus('☁️ تم رفع البيانات');alert('تم رفع البيانات بنجاح.');await loadCloud()}catch(e){console.error(e);alert('فشل رفع البيانات: '+e.message)}finally{cloudBusy=false}}
-function startRealtime(){if(!supabaseClient||realtimeChannel)return;realtimeChannel=supabaseClient.channel('sccgr-db-changes').on('postgres_changes',{event:'*',schema:'public',table:tableMap.people},()=>refreshFromRealtime()).on('postgres_changes',{event:'*',schema:'public',table:tableMap.dogs},()=>refreshFromRealtime()).on('postgres_changes',{event:'*',schema:'public',table:tableMap.visits},()=>refreshFromRealtime()).on('postgres_changes',{event:'*',schema:'public',table:tableMap.tasks},()=>refreshFromRealtime()).subscribe(status=>{if(status==='SUBSCRIBED')setCloudStatus('☁️ متصل — مزامنة مباشرة')})}
-let refreshTimer=null;function refreshFromRealtime(){if(cloudBusy)return;clearTimeout(refreshTimer);refreshTimer=setTimeout(async()=>{try{await loadCloud()}catch(e){console.error(e)}},250)}
-function signOut(){
-  sessionStorage.removeItem('sccgr_pin_ok');
-  showLogin('تم قفل النظام. أدخل PIN للمتابعة.');
-}
-function showLogin(msg=''){
-  $('authGate').classList.add('show');
-  $('loginMsg').textContent=msg;
-  const pin=$('loginPin'); if(pin){pin.value=''; setTimeout(()=>pin.focus(),80)}
-  setCloudStatus('☁️ في انتظار PIN',true);
-}
+function cloudHeaders(extra={}){return {'apikey':window.SCCGR_CONFIG.SUPABASE_PUBLISHABLE_KEY,'Authorization':'Bearer '+window.SCCGR_CONFIG.SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json',...extra}}
+async function cloudRequest(path,options={}){if(!hasConfig())throw new Error('إعداد السحابة غير موجود.');let r;try{r=await fetch(window.SCCGR_CONFIG.SUPABASE_URL+'/rest/v1/'+path,{...options,headers:cloudHeaders(options.headers||{})})}catch(e){throw new Error('تعذر الوصول إلى Supabase: '+(e?.message||'Network error'))}if(!r.ok){let msg='HTTP '+r.status;try{const x=await r.json();msg=x.message||x.error_description||x.error||x.hint||msg}catch{}throw new Error(path+' → '+msg)}return r.status===204?null:r.json()}
+function mergeCloudRows(kind,rows){const conv={people:rowToPerson,dogs:rowToDog,visits:rowToVisit,tasks:rowToTask}[kind];const incoming=(rows||[]).map(conv);const local=db[kind]||[];const map=new Map(local.map(x=>[x.id,x]));incoming.forEach(x=>map.set(x.id,x));db[kind]=[...map.values()]}
+async function loadCloud(){if(!hasConfig())return false;const [p,d,v,t]=await Promise.all([cloudRequest(tableMap.people+'?select=*'),cloudRequest(tableMap.dogs+'?select=*'),cloudRequest(tableMap.visits+'?select=*'),cloudRequest(tableMap.tasks+'?select=*')]);mergeCloudRows('people',p);mergeCloudRows('dogs',d);mergeCloudRows('visits',v);mergeCloudRows('tasks',t);persist();return true}
+async function upsertTable(kind,row){if(!hasConfig())return;await cloudRequest(tableMap[kind],{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(row)})}
+async function deleteTable(kind,id){if(!hasConfig())return;await cloudRequest(tableMap[kind]+'?id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:{'Prefer':'return=minimal'}})}
+async function syncOne(kind,obj){if(!cloudReady||!hasConfig())return;try{await upsertTable(kind,{people:personRow,dogs:dogRow,visits:visitRow,tasks:taskRow}[kind](obj));setCloudStatus('☁️ متصل — محفوظ')}catch(e){console.warn('Cloud save failed; local copy kept:',e);cloudReady=false;setCloudStatus('📱 دون إنترنت — محفوظ على الجهاز',true)}}
+async function syncAllLocal(){if(!cloudReady||!hasConfig()||cloudBusy)return;try{cloudBusy=true;for(const p of db.people)await upsertTable('people',personRow(p));for(const d of db.dogs)await upsertTable('dogs',dogRow(d));for(const v of db.visits)await upsertTable('visits',visitRow(v));for(const t of db.tasks)await upsertTable('tasks',taskRow(t));setCloudStatus('☁️ متصل — تمت المزامنة')}catch(e){console.warn('Offline/cloud sync paused:',e);cloudReady=false;setCloudStatus('📱 دون إنترنت — البيانات محفوظة على الجهاز',true)}finally{cloudBusy=false}}
+async function migrateLocalToCloud(){if(!cloudReady){alert('لا يوجد اتصال بالسحابة حالياً. البيانات محفوظة محلياً ويمكن رفعها عند عودة الإنترنت.');return}if(!confirm('سيتم رفع البيانات الموجودة على هذا الجهاز إلى قاعدة البيانات المركزية. هل تريد المتابعة؟'))return;await syncAllLocal();if(cloudReady)alert('تمت مزامنة البيانات مع السحابة.')}
+function startRealtime(){if(cloudTimer)return;cloudTimer=setInterval(async()=>{if(navigator.onLine!==false){try{await loadCloud();cloudReady=true;await syncAllLocal()}catch(e){cloudReady=false}}},30000)}
+function refreshFromRealtime(){loadCloud().catch(()=>{})}
+function signOut(){sessionStorage.removeItem('sccgr_pin_ok');showLogin('تم قفل النظام. أدخل PIN للمتابعة.')}
+function showLogin(msg=''){$('authGate').classList.add('show');$('loginMsg').textContent=msg;const pin=$('loginPin');if(pin){pin.value='';setTimeout(()=>pin.focus(),80)}setCloudStatus('☁️ في انتظار PIN',true)}
 function hideLogin(){$('authGate').classList.remove('show');$('loginMsg').textContent=''}
-async function ensureAnonymousAuth(){
-  if(!supabaseClient) throw new Error('تعذر إنشاء اتصال قاعدة البيانات.');
-  const current=await supabaseClient.auth.getSession();
-  if(current.error) throw current.error;
-  if(current.data.session) return current.data.session;
-  const res=await supabaseClient.auth.signInAnonymously();
-  if(res.error) throw res.error;
-  return res.data.session;
+async function connectCloudInBackground(){
+  if(!hasConfig()){setCloudStatus('📱 وضع دون إنترنت — البيانات محفوظة على الجهاز',true);return}
+  try{setCloudStatus('☁️ محاولة المزامنة...');await loadCloud();cloudReady=true;await syncAllLocal();startRealtime();setCloudStatus('☁️ متصل — مزامنة تلقائية')}
+  catch(e){console.warn('Cloud unavailable; continuing offline:',e);cloudReady=false;setCloudStatus('⚠️ خطأ السحابة: '+(e?.message||'غير معروف'),true);startRealtime()}
 }
-async function openAfterPin(){
-  if($('loginPin').value!=='0511'){
-    $('loginMsg').textContent='رمز PIN غير صحيح.';
-    $('loginPin').value=''; $('loginPin').focus(); return;
-  }
-  $('loginMsg').textContent='جارِ الاتصال بقاعدة البيانات...';
-  try{
-    if(!hasConfig()) throw new Error('إعداد قاعدة البيانات ناقص.');
-    const session=await ensureAnonymousAuth();
-    cloudUser=session.user; cloudReady=true;
-    sessionStorage.setItem('sccgr_pin_ok','1');
-    hideLogin(); setCloudStatus('☁️ جارِ تحميل البيانات...');
-    await loadCloud(); startRealtime();
-  }catch(e){
-    console.error(e);
-    $('loginMsg').textContent='تعذر الاتصال بالسحابة: '+(e.message||e);
-    setCloudStatus('☁️ غير متصل',true);
-  }
-}
-async function bootCloud(){
-  if(!hasConfig()){showLogin('إعداد قاعدة البيانات ناقص.');return}
-  if(!supabaseClient){showLogin('تعذر إنشاء اتصال قاعدة البيانات.');return}
-  supabaseClient.auth.onAuthStateChange((event,session)=>{
-    if(event==='SIGNED_OUT'){cloudReady=false;cloudUser=null;showLogin('تم إنهاء الجلسة السحابية.');}
-    else if(session){cloudUser=session.user;cloudReady=true;}
-  });
-  try{
-    const session=await ensureAnonymousAuth();
-    cloudUser=session.user; cloudReady=true;
-    if(sessionStorage.getItem('sccgr_pin_ok')==='1'){
-      hideLogin(); setCloudStatus('☁️ جارِ تحميل البيانات...');
-      await loadCloud(); startRealtime();
-    }else{
-      showLogin();
-    }
-  }catch(e){
-    console.error(e); showLogin('تعذر الاتصال بالسحابة: '+(e.message||e));
-  }
-}
+async function openAfterPin(){if($('loginPin').value!=='0511'){$('loginMsg').textContent='رمز PIN غير صحيح.';$('loginPin').value='';$('loginPin').focus();return}sessionStorage.setItem('sccgr_pin_ok','1');hideLogin();setCloudStatus('📱 وضع دون إنترنت — جاري التشغيل',true);render();connectCloudInBackground()}
+async function bootCloud(){if(sessionStorage.getItem('sccgr_pin_ok')==='1'){hideLogin();setCloudStatus('📱 وضع دون إنترنت — البيانات محفوظة على الجهاز',true);render();connectCloudInBackground();return}showLogin()}
+window.addEventListener('online',()=>{if(sessionStorage.getItem('sccgr_pin_ok')==='1')connectCloudInBackground()});
+window.addEventListener('offline',()=>{cloudReady=false;setCloudStatus('📱 دون إنترنت — البيانات محفوظة على الجهاز',true)});
+
 function statusMeta(s){return s==='Disponible'?['🟢','Disponible','s-des']:s==='Repos'?['⚪','Repos','s-repos']:s==='En mission'?['🟡','En mission','s-mesion']:s==='Permission'?['🔴','Permission','s-prem']:s==='Detachement'?['🟣','Detachement','s-det']:s==='Mutation'?['⚫','Mutation','s-mut']:['⚪','—','s-repos']}
 function statusPill(s){if(!s)return '';let m=statusMeta(s);return `<span class="status-pill ${m[2]}">${m[0]} ${m[1]}</span>`}
 function render(){ $('peopleCount').textContent=db.people.length;$('dogsCount').textContent=db.dogs.length;$('visitsCount').textContent=db.visits.length;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab)); if(tab==='home')home();if(tab==='people')people();if(tab==='dogs')dogs();}
@@ -168,9 +130,9 @@ function personDetails(id){let p=db.people.find(x=>x.id===id);p={...p,status:eff
 function dogProfileInPerson(d){let vs=db.visits.filter(v=>v.dogId===d.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));return `<div class="dog-card"><div class="card-row"><div style="display:flex;gap:12px;align-items:center"><img class="dog-photo" src="${d.photo||'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}"><div><div class="dog-name-large">🐕 ${esc(d.name)}</div><div class="muted">${esc(d.breed||'')} · ${esc(d.gender||'')}</div></div></div><div class="small-actions"><button class="btn" onclick="dogForm('${d.id}')">✏️ تعديل</button><button class="btn" onclick="dogDetails('${d.id}')">فتح الملف</button></div></div><div class="muted" style="margin-top:10px">🩺 الزيارات البيطرية: ${vs.length}</div></div>`}
 function dogs(){ $('content').innerHTML=`<div class="section-title">🐕 الكلاب</div><div class="actions" style="margin:12px 0"><button class="btn primary" onclick="dogs()">🐕 الكلاب</button><button class="btn" onclick="visits()">🩺 الزيارات</button></div><input class="search" id="dogsSearch" placeholder="🔍 ابحث عن كلب أو الشخص المسؤول..." oninput="dogsList(this.value)"><div id="dogsList" class="list"></div>`;dogsList('')}
 function dogStatusMeta(s){return s==='Disponible'?'🟢':s==='Repos'?'⚪':s==='En mission'?'🟡':s==='Permission'?'🔴':s==='Detachement'?'🟣':s==='Mutation'?'⚫':'⚪'}
-function dogsList(q){q=(q||'').toLowerCase();let a=db.dogs.filter(d=>d.status!=='Archived'&&((d.name||'')+' '+(db.people.find(p=>p.id===d.personId)?.name||'')+' '+(d.breed||'')).toLowerCase().includes(q));$('dogsList').innerHTML=a.length?a.map(d=>{let p=db.people.find(x=>x.id===d.personId);return `<div class="dog-card" onclick="dogDetails('${d.id}')"><div class="dog-list-main"><img class="dog-photo" src="${d.photo||'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}"><div class="dog-list-info"><div class="dog-name-large">${esc(d.name)}</div><div class="muted">${esc(d.breed||'')}</div><div class="muted">رقم الكلب: <b>${esc(d.dogNumber||'—')}</b></div></div></div><div class="dog-responsible"><div class="dog-responsible-name">${esc(p?.name||'غير محدد')}</div><div class="dog-responsible-status" title="${esc(p?.status||'')}">${dogStatusMeta(p?.status)}</div></div></div>`}).join(''):'<div class="empty">لا توجد كلاب</div>'}
+function dogsList(q){q=(q||'').toLowerCase();let a=db.dogs.filter(d=>((d.name||'')+' '+(db.people.find(p=>p.id===d.personId)?.name||'')+' '+(d.breed||'')).toLowerCase().includes(q));$('dogsList').innerHTML=a.length?a.map(d=>{let p=db.people.find(x=>x.id===d.personId);return `<div class="dog-card" onclick="dogDetails('${d.id}')"><div class="dog-list-main"><img class="dog-photo" src="${d.photo||'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}"><div class="dog-list-info"><div class="dog-name-large">${esc(d.name)}</div><div class="muted">${esc(d.breed||'')}</div><div class="muted">رقم الكلب: <b>${esc(d.dogNumber||'—')}</b></div></div></div><div class="dog-responsible"><div class="dog-responsible-name">${esc(p?.name||'غير محدد')}</div><div class="dog-responsible-status" title="${esc(p?.status||'')}">${dogStatusMeta(p?.status)}</div></div></div>`}).join(''):'<div class="empty">لا توجد كلاب</div>'}
 function dogForm(id=''
-,personId=''){let d=db.dogs.find(x=>x.id===id)||{name:'',dogNumber:'',personId:personId||'',breed:'',gender:'',birth:'',arrival:'',color:'',weight:'',notes:'',photo:'',status:'Disponible'};openModal(`<div class="box-head"><h2>${id?'✏️ تعديل الكلب':'🐕 إضافة كلب'}</h2><button class="close" onclick="closeModal()">✕</button></div><form class="form" id="dogForm"><div class="field"><label>ID الكلب (تلقائي)<input value="${esc(id||'سيُنشأ تلقائياً')}" disabled></label></div><div class="field"><label>الرقم الخاص بالكلب<input name="dogNumber" value="${esc(d.dogNumber||'')}" placeholder="أدخل رقم الكلب"></label></div><div class="field"><label>اسم الكلب<input name="name" required value="${esc(d.name)}"></label></div><div class="field"><label>الشخص المسؤول<select name="personId" required><option value="">اختر الشخص</option>${db.people.map(p=>`<option value="${p.id}" ${p.id===d.personId?'selected':''}>${esc(p.name)} — ${esc(p.matricul||'')}</option>`).join('')}</select></label></div><div class="field"><label>الحالة<select name="status"><option value="Disponible" ${d.status==='Disponible'?'selected':''}>🟢 Disponible</option><option value="Repos" ${d.status==='Repos'?'selected':''}>⚪ Repos</option><option value="En mission" ${d.status==='En mission'?'selected':''}>🟡 En mission</option><option value="Permission" ${d.status==='Permission'?'selected':''}>🔴 Permission</option><option value="Detachement" ${d.status==='Detachement'?'selected':''}>🟣 Detachement</option><option value="Mutation" ${d.status==='Mutation'?'selected':''}>⚫ Mutation</option></select></label></div><div class="field"><label>الجنس<select name="gender"><option value="">اختر</option><option ${d.gender==='ذكر'?'selected':''}>ذكر</option><option ${d.gender==='أنثى'?'selected':''}>أنثى</option></select></label></div><div class="field"><label>السلالة<input name="breed" value="${esc(d.breed)}"></label></div><div class="field"><label>تاريخ الميلاد<input type="date" name="birth" value="${d.birth||''}"></label></div><div class="field"><label>تاريخ الوصول<input type="date" name="arrival" value="${d.arrival||''}"></label></div><div class="field"><label>اللون<input name="color" value="${esc(d.color)}"></label></div><div class="field"><label>الوزن<input name="weight" value="${esc(d.weight)}"></label></div><div class="field full"><label>ملاحظات<textarea name="notes">${esc(d.notes)}</textarea></label></div><div class="field full"><label>صورة الكلب (اختيارية)<input type="file" accept="image/*" id="dogPhoto"></label>${d.photo?`<img class="photo-preview" src="${d.photo}">`:''}</div><div class="full actions"><button class="btn primary">💾 حفظ</button>${id?`<button type="button" class="btn danger" onclick="delDog('${id}')">🗂️ أرشفة الكلب</button>`:''}</div></form>`);$('dogForm').onsubmit=async e=>{e.preventDefault();let o=Object.fromEntries(new FormData(e.target));o.id=id||uid('D-');o.photo=d.photo||'';let file=$('dogPhoto').files[0];if(file)o.photo=await fileData(file);if(id)db.dogs=db.dogs.map(x=>x.id===id?o:x);else db.dogs.push(o);closeModal();persist();await syncOne('dogs',o)}}
+,personId=''){let d=db.dogs.find(x=>x.id===id)||{name:'',dogNumber:'',personId:personId||'',breed:'',gender:'',birth:'',arrival:'',color:'',weight:'',notes:'',photo:'',status:'Disponible'};openModal(`<div class="box-head"><h2>${id?'✏️ تعديل الكلب':'🐕 إضافة كلب'}</h2><button class="close" onclick="closeModal()">✕</button></div><form class="form" id="dogForm"><div class="field"><label>ID الكلب (تلقائي)<input value="${esc(id||'سيُنشأ تلقائياً')}" disabled></label></div><div class="field"><label>الرقم الخاص بالكلب<input name="dogNumber" value="${esc(d.dogNumber||'')}" placeholder="أدخل رقم الكلب"></label></div><div class="field"><label>اسم الكلب<input name="name" required value="${esc(d.name)}"></label></div><div class="field"><label>الشخص المسؤول<select name="personId" required><option value="">اختر الشخص</option>${db.people.map(p=>`<option value="${p.id}" ${p.id===d.personId?'selected':''}>${esc(p.name)} — ${esc(p.matricul||'')}</option>`).join('')}</select></label></div><div class="field"><label>الحالة<select name="status"><option value="Disponible" ${d.status==='Disponible'?'selected':''}>🟢 Disponible</option><option value="Repos" ${d.status==='Repos'?'selected':''}>⚪ Repos</option><option value="En mission" ${d.status==='En mission'?'selected':''}>🟡 En mission</option><option value="Permission" ${d.status==='Permission'?'selected':''}>🔴 Permission</option><option value="Detachement" ${d.status==='Detachement'?'selected':''}>🟣 Detachement</option><option value="Mutation" ${d.status==='Mutation'?'selected':''}>⚫ Mutation</option></select></label></div><div class="field"><label>الجنس<select name="gender"><option value="">اختر</option><option ${d.gender==='ذكر'?'selected':''}>ذكر</option><option ${d.gender==='أنثى'?'selected':''}>أنثى</option></select></label></div><div class="field"><label>السلالة<input name="breed" value="${esc(d.breed)}"></label></div><div class="field"><label>تاريخ الميلاد<input type="date" name="birth" value="${d.birth||''}"></label></div><div class="field"><label>تاريخ الوصول<input type="date" name="arrival" value="${d.arrival||''}"></label></div><div class="field"><label>اللون<input name="color" value="${esc(d.color)}"></label></div><div class="field"><label>الوزن<input name="weight" value="${esc(d.weight)}"></label></div><div class="field full"><label>ملاحظات<textarea name="notes">${esc(d.notes)}</textarea></label></div><div class="field full"><label>صورة الكلب (اختيارية)<input type="file" accept="image/*" id="dogPhoto"></label>${d.photo?`<img class="photo-preview" src="${d.photo}">`:''}</div><div class="full actions"><button class="btn primary">💾 حفظ</button>${id?`<button type="button" class="btn danger" onclick="delDog('${id}')">🗑️ حذف الكلب</button>`:''}</div></form>`);$('dogForm').onsubmit=async e=>{e.preventDefault();let o=Object.fromEntries(new FormData(e.target));o.id=id||uid('D-');o.photo=d.photo||'';let file=$('dogPhoto').files[0];if(file)o.photo=await fileData(file);if(id)db.dogs=db.dogs.map(x=>x.id===id?o:x);else db.dogs.push(o);closeModal();persist();await syncOne('dogs',o)}}
 function dogDetails(id){let d=db.dogs.find(x=>x.id===id),p=db.people.find(x=>x.id===d.personId),vs=db.visits.filter(v=>v.dogId===id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));openModal(`<div class="box-head"><h2>🐕 ${esc(d.name)}</h2><button class="close" onclick="closeModal()">✕</button></div><div class="dog-card"><div class="profile-top"><img class="dog-photo" style="width:90px;height:90px" src="${d.photo||'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}"><div><div class="dog-name-large">${esc(d.name)}</div><div class="muted">المسؤول: ${esc(p?.name||'غير محدد')}</div></div></div><div class="info-grid"><div class="info-item"><b>رقم الكلب</b>${esc(d.dogNumber||'—')}</div><div class="info-item"><b>ID الكلب</b>${esc(d.id)}</div><div class="info-item"><b>الجنس</b>${esc(d.gender||'—')}</div><div class="info-item"><b>السلالة</b>${esc(d.breed||'—')}</div><div class="info-item"><b>تاريخ الميلاد</b>${esc(d.birth||'—')}</div><div class="info-item"><b>تاريخ الوصول</b>${esc(d.arrival||'—')}</div><div class="info-item"><b>الوزن</b>${esc(d.weight||'—')}</div><div class="info-item"><b>اللون</b>${esc(d.color||'—')}</div></div><div style="margin-top:12px"><b>ملاحظات</b><div class="muted">${esc(d.notes||'—')}</div></div></div><div class="section-title">🩺 سجل الزيارات البيطرية</div><div class="actions"><button class="btn primary" onclick="visitForm('${d.id}')">➕ إضافة زيارة</button><button class="btn" onclick="dogForm('${d.id}')">✏️ تعديل الكلب</button></div>${vs.length?vs.map(v=>visitCard(v)).join(''):'<div class="empty">لا توجد زيارات بيطرية بعد</div>'}`)}
 function dateRange(start,end){
   if(!start||!end)return [];
@@ -217,12 +179,14 @@ openModal(`<div class="box-head"><h2>✨️ المهام</h2><button class="clos
 
 function visitChooser(){if(!db.dogs.length){alert('أضيفي كلباً أولاً');return}openModal(`<div class="box-head"><h2>🩺 اختر الكلب</h2><button class="close" onclick="closeModal()">✕</button></div><div class="list">${db.dogs.map(d=>`<button class="btn" style="text-align:right" onclick="visitForm('${d.id}')">🐕 ${esc(d.name)} — ${esc(db.people.find(p=>p.id===d.personId)?.name||'بدون شخص')}</button>`).join('')}</div>`)}
 function showStatusFilter(){openModal(`<div class="box-head"><h2>👮 حالة الشخص</h2><button class="close" onclick="closeModal()">✕</button></div><div class="list">${['Disponible','Repos','En mission','Permission','Detachement','Mutation'].map(s=>{let a=db.people.filter(p=>effectivePersonStatus(p)===s);return `<div class="person-card"><div class="card-row"><div>${statusPill(s)}</div><b>${a.length} شخص</b></div><div class="muted" style="margin-top:8px">${a.map(p=>esc(p.name)).join(' · ')||'لا يوجد أشخاص'}</div></div>`}).join('')}</div>`)}
-async async function delDog(id){const dog=db.dogs.find(d=>d.id===id);if(!dog)return;if(!confirm('أرشفة هذا الكلب؟ سيختفي من لائحة الكلاب النشيطة، لكن ستبقى جميع زياراته محفوظة في الأرشيف.'))return;try{dog.status='Archived';await syncOne('dogs',dog);persist();closeModal();alert('تمت أرشفة الكلب. زياراته بقيت محفوظة.')}catch(e){alert('تعذر أرشفة الكلب في السحابة: '+e.message)}}
+async function delDog(id){if(!confirm('حذف الكلب وجميع زياراته؟'))return;db.dogs=db.dogs.filter(d=>d.id!==id);db.visits=db.visits.filter(v=>v.dogId!==id);persist();try{await deleteTable('dogs',id)}catch(e){console.error(e)} }
 async function delVisit(id,dogId){if(!confirm('حذف الزيارة؟'))return;db.visits=db.visits.filter(v=>v.id!==id);closeModal();persist();await deleteTable('visits',id);setTimeout(()=>dogDetails(dogId),80)}
 function openModal(html){$('modalBox').innerHTML=html;$('modal').classList.add('show')};function closeModal(){$('modal').classList.remove('show');$('modalBox').innerHTML=''}
 function fileData(file){return new Promise((res,rej)=>{if(!file)return res('');if(!file.type.startsWith('image/'))return rej(new Error('الملف ليس صورة'));let r=new FileReader();r.onerror=rej;r.onload=()=>{let img=new Image();img.onerror=rej;img.onload=()=>{let max=1000,scale=Math.min(1,max/Math.max(img.width,img.height)),w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale)),c=document.createElement('canvas');c.width=w;c.height=h;let ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);res(c.toDataURL('image/jpeg',0.82))};img.src=r.result};r.readAsDataURL(file)})}
 function exportBackup(){let blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='SCCGR-backup.json';a.click();URL.revokeObjectURL(a.href)}
 function importBackup(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!x.people||!x.dogs||!x.visits)throw 0;db=x;if(!db.tasks)db.tasks=[];persist();alert('تم استيراد النسخة الاحتياطية إلى هذا الجهاز. إذا أردت رفعها إلى قاعدة البيانات المركزية اضغط زر ☁️ رفع البيانات للسحابة.')}catch(_){alert('ملف النسخة الاحتياطية غير صالح.')}};r.readAsText(f)}
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render()});$('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});$('loginForm').addEventListener('submit',async e=>{e.preventDefault();await openAfterPin()});$('loginPin').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'').slice(0,4)});render();bootCloud();
+// Offline/PWA: the app shell is cached locally; cloud sync is optional and never blocks startup.
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}
 </script>
 </body></html>
