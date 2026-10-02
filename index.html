@@ -76,7 +76,7 @@ function personRow(p){return {id:p.id,name:p.name||'',matricul:p.matricul||'',ph
 function dogRow(d){return {id:d.id,name:d.name||'',dog_number:d.dogNumber||'',person_id:d.personId||null,breed:d.breed||'',gender:d.gender||'',birth:d.birth||null,arrival:d.arrival||null,color:d.color||'',weight:d.weight||'',notes:d.notes||'',photo:d.photo||'',status:d.status||'Disponible'}}
 function visitRow(v){return {id:v.id,dog_id:v.dogId||null,date:v.date||null,start_date:v.startDate||null,end_date:v.endDate||null,visit_days:v.visitDays||[],reason:v.reason||'',diagnosis:v.diagnosis||'',treatment:v.treatment||'',doctor:v.doctor||'',medicines:v.medicines||'',next_date:v.next||null,notes:v.notes||'',completed:!!v.completed,created_at:v.createdAt||Date.now()}}
 function taskRow(t){return {id:t.id,name:t.name||'',place:t.place||'',people:t.people||'',date:t.date||null,dog_ids:t.dogIds||[],result:t.result||''}}
-function cloudHeaders(extra={}){return {'apikey':window.SCCGR_CONFIG.SUPABASE_PUBLISHABLE_KEY,'Authorization':'Bearer '+window.SCCGR_CONFIG.SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json',...extra}}
+function cloudHeaders(extra={}){return {'apikey':window.SCCGR_CONFIG.SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json',...extra}}
 async function cloudRequest(path,options={}){if(!hasConfig())throw new Error('إعداد السحابة غير موجود: راجع رابط المشروع ومفتاح Publishable.');let r;try{r=await fetch(window.SCCGR_CONFIG.SUPABASE_URL+'/rest/v1/'+path,{...options,headers:cloudHeaders(options.headers||{})})}catch(e){throw new Error('فشل الاتصال بالشبكة: '+(e?.message||'Network error')+' — تحقق من الإنترنت ورابط Supabase.')}if(!r.ok){let msg='HTTP '+r.status;try{const x=await r.json();msg=(x.message||x.error_description||x.error||x.hint||msg)}catch{}throw new Error('Supabase HTTP '+r.status+' في '+path+': '+msg)}return r.status===204?null:r.json()}
 function mergeCloudRows(kind,rows){const conv={people:rowToPerson,dogs:rowToDog,visits:rowToVisit,tasks:rowToTask}[kind];const incoming=(rows||[]).map(conv);const local=db[kind]||[];const map=new Map(local.map(x=>[x.id,x]));incoming.forEach(x=>map.set(x.id,x));db[kind]=[...map.values()]}
 async function loadCloud(){if(!hasConfig())return false;const [p,d,v,t]=await Promise.all([cloudRequest(tableMap.people+'?select=*'),cloudRequest(tableMap.dogs+'?select=*'),cloudRequest(tableMap.visits+'?select=*'),cloudRequest(tableMap.tasks+'?select=*')]);mergeCloudRows('people',p);mergeCloudRows('dogs',d);mergeCloudRows('visits',v);mergeCloudRows('tasks',t);persist();return true}
@@ -105,7 +105,7 @@ async function connectCloudInBackground(){
     const detail=String(e?.message||e||'خطأ غير معروف');
     console.error('SCCGR Supabase diagnostic:',detail,e);
     setCloudStatus('⚠️ فشل Supabase: '+detail,true);
-    // إبقاء التطبيق مفتوحاً محلياً، وإظهار سبب الفشل الفعلي بدل رسالة عامة.
+    // إبقاء التطبيق مفتوحاً محلياً، وإظهار السبب الفعلي دون عرض المفتاح.
     const msg=$('loginMsg');
     if(msg) msg.textContent='فشل الاتصال بالسحابة: '+detail;
   }
